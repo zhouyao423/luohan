@@ -5,15 +5,15 @@ Express + Sequelize + MySQL，提供用户资料、五百罗汉内容、收藏�
 ## 启动与配置
 
 1. 运行 `npm ci` 安装锁定的依赖。
-2. 将 `config/application.example.properties` 复制为 `config/application.properties`，填写 MySQL 连接信息和小程序 AppID。数据库须事先创建。
-3. 云托管使用数据库内网地址；本地调试另建 `config/application.local.properties`，填写外网地址和本地监听端口。
+2. 云托管提供 `MYSQL_ADDRESS`（内网 host:port）、`MYSQL_USERNAME`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` 四个环境变量，数据库须事先创建。小程序 AppID 和监听端口维护在 `config/application.cloud.properties`。
+3. 本地调试将 `config/application.example.properties` 复制为 `config/application.local.properties`，填写数据库外网地址、账号、密码、库名、小程序 AppID 和本地监听端口。
 4. 云托管运行 `npm start`；本地运行 `npm run start:local`。
 
-配置使用 `key=value`，密码值保留等号后的全部字符。私有 properties 文件已被 Git 忽略，文件权限建议为 `600`，不得放进文档或日志。默认监听端口为 80，须与云托管服务端口一致。
+本地 properties 使用 `key=value`，密码值保留等号后的全部字符。显式指定配置文件时仅使用文件配置，不受云端 MySQL 环境变量影响。私有 properties 文件已被 Git 忽略，文件权限建议为 `600`，不得放进文档或日志。默认监听端口为 80，须与云托管服务端口一致。
 
 启动时验证数据库连接并创建缺失的表，不修改已有表结构。业务表为 `t_luohan_user`、`t_luohan_favorite`、`t_luohan_encounter`，时间按 UTC 保存。模板计数器的首页、接口和表保留。
 
-Docker 构建使用锁定依赖。构建上下文必须包含 `config/application.properties`；本地配置不会进入镜像。通过 Git 拉取源码构建时，需在构建前提供私有配置文件。包含配置的镜像和构建产物须限制访问。
+Docker 构建使用锁定依赖，包含非敏感的云端配置文件；私有 properties 文件不会进入镜像。云托管从 master 构建时无需上传数据库配置文件，四个 MySQL 环境变量须在服务运行设置中提供。
 
 ## 微信调用与身份
 

@@ -1,6 +1,7 @@
 node_modules/
 config/application*.properties
 !config/application.example.properties
+!config/application.cloud.properties
 *.log
 coverage/
 .DS_Store

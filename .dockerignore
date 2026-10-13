@@ -4,6 +4,6 @@ test
 coverage
 *.log
 config/application*.properties
-!config/application.properties
 !config/application.example.properties
+!config/application.cloud.properties
 .DS_Store

@@ -1,10 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 
-function loadConfig(filename = path.join(__dirname, "config/application.properties")) {
+function loadConfig(filename, environment = process.env) {
+  const cloud = filename === undefined;
+  filename = filename || path.join(__dirname, "config/application.cloud.properties");
   let contents;
   try { contents = fs.readFileSync(filename, "utf8"); }
-  catch { throw new Error("配置文件不可读取，请检查 application.properties"); }
+  catch { throw new Error("配置文件不可读取，请检查 properties 文件"); }
   const values = Object.create(null);
   for (const line of contents.split(/\r?\n/)) {
     if (!line.trim() || /^\s*[#!]/.test(line)) continue;
@@ -13,6 +15,15 @@ function loadConfig(filename = path.join(__dirname, "config/application.properti
     const key = line.slice(0, separator).trim();
     if (Object.prototype.hasOwnProperty.call(values, key)) throw new Error("配置文件存在重复字段");
     values[key] = line.slice(separator + 1);
+  }
+  if (cloud) {
+    const address = typeof environment.MYSQL_ADDRESS === "string" && environment.MYSQL_ADDRESS.match(/^([^\s:/]+):(\d{1,5})$/);
+    if (!address) throw new Error("MYSQL_ADDRESS 须为 host:port");
+    values["mysql.host"] = address[1];
+    values["mysql.port"] = address[2];
+    values["mysql.database"] = environment.MYSQL_DATABASE;
+    values["mysql.username"] = environment.MYSQL_USERNAME;
+    values["mysql.password"] = environment.MYSQL_PASSWORD;
   }
   for (const key of ["mysql.host", "mysql.database", "mysql.username", "mysql.password", "wechat.appid"]) {
     if (!values[key]) throw new Error(`缺少配置字段 ${key}`);
