@@ -45,6 +45,19 @@ test("真实 MySQL：用户隔离、收藏版本、随机幂等、历史快照�
     result = await call("A", "PATCH", "/api/me", {avatarFileId: `cloud://example.storage/users/${userIds[1]}/avatars/test.png`});assert.equal(result.status, 400);
     result = await call("A", "PATCH", "/api/me", {avatarFileId: `cloud://example.storage/users/${userIds[0]}/avatars/test.png`});assert.equal(result.status, 200);
     result = await call("A", "PATCH", "/api/me", {avatarFileId: null});assert.equal(result.data.avatarFileId, null);
+    const draft = {version: 1, number: 130, name: catalog.entries[129].name, original: catalog.entries[129].original, nickname: "静读🌿", date: "2026-10-13", inscription: "每一步，都有新的可能。", seal: "念"};
+    result = await call("A", "PUT", "/api/me/memorials/130", {version: 0, draft});assert.equal(result.status, 200);assert.equal(result.data.version, 1);assert.deepEqual(result.data.draft, draft);
+    const repeatedDrafts = await Promise.all([call("A", "PUT", "/api/me/memorials/130", {version: 0, draft}), call("A", "PUT", "/api/me/memorials/130", {version: 0, draft})]);
+    assert.ok(repeatedDrafts.every(row => row.status === 200 && row.data.version === 1));
+    const secondDraft = {...draft, inscription: "我正在走向自己的方向。", seal: "藏"};
+    result = await call("A", "PUT", "/api/me/memorials/130", {version: 1, draft: secondDraft});assert.equal(result.data.version, 2);
+    result = await call("A", "PUT", "/api/me/memorials/130", {version: 1, draft});assert.equal(result.status, 409);assert.equal(result.code, "MEMORIAL_VERSION_CONFLICT");assert.deepEqual(result.data.draft, secondDraft);
+    result = await call("A", "PUT", "/api/me/memorials/130", {version: 2, draft: {...secondDraft, original: "替换后的原文"}});assert.equal(result.status, 409);assert.equal(result.code, "MEMORIAL_SNAPSHOT_CONFLICT");
+    result = await call("B", "GET", "/api/me/memorials");assert.deepEqual(result.data.items, []);
+    result = await call("A", "GET", "/api/me/memorials");assert.deepEqual(result.data.items[0].draft, secondDraft);assert.equal(result.data.items[0].version, 2);
+    result = await call("B", "PUT", "/api/me/memorials/130", {version: 0, draft, userId: userIds[0]});assert.equal(result.status, 400);
+    result = await call("A", "PUT", "/api/me/memorials/3", {version: 0, draft});assert.equal(result.status, 400);
+    assert.equal(await db.Memorial.count({where: {userId: userIds[0], luohanNumber: 130}}), 1);
     result = await call("A", "PUT", "/api/me/favorites/130", {version: 0});assert.equal(result.data.version, 1);
     result = await call("A", "PUT", "/api/me/favorites/130", {version: 0});assert.equal(result.data.version, 1);
     result = await call("B", "GET", "/api/me/favorites");assert.deepEqual(result.data.items, []);
@@ -80,7 +93,7 @@ test("真实 MySQL：用户隔离、收藏版本、随机幂等、历史快照�
     result = await call("A", "POST", "/api/me/import", {});assert.equal(result.status, 404);
     const [plan] = await db.sequelize.query("EXPLAIN SELECT id FROM t_luohan_encounter WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 21", {replacements: [userIds[0]]});
     assert.equal(plan[0].key, "idx_user_id_created_at_id");
-    const [fields] = await db.sequelize.query("SELECT table_name, column_name, column_comment FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name IN ('t_luohan_user','t_luohan_favorite','t_luohan_encounter','t_luohan_content','t_luohan_image')");
+    const [fields] = await db.sequelize.query("SELECT table_name, column_name, column_comment FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name IN ('t_luohan_user','t_luohan_favorite','t_luohan_encounter','t_luohan_content','t_luohan_image','t_luohan_memorial')");
     assert.ok(fields.length > 20);assert.ok(fields.every(field => field.column_comment));
     const [indexes] = await db.sequelize.query("SHOW INDEX FROM t_luohan_image WHERE Key_name = 'udx_luohan_number_type'");
     assert.equal(indexes.length, 2);assert.ok(indexes.every(index => index.Non_unique === 0));
@@ -90,7 +103,7 @@ test("真实 MySQL：用户隔离、收藏版本、随机幂等、历史快照�
     if (server) {server.closeAllConnections();await new Promise(resolve => server.close(resolve));}
     if (userIds.length) await db.sequelize.transaction(async transaction => {
       const where = {userId: {[Op.in]: userIds}};
-      await db.Encounter.destroy({where, transaction});await db.Favorite.destroy({where, transaction});
+      await db.Encounter.destroy({where, transaction});await db.Favorite.destroy({where, transaction});await db.Memorial.destroy({where, transaction});
       await db.User.destroy({where: {id: {[Op.in]: userIds}}, transaction});
     });
     await db.close();

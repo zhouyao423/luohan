@@ -14,6 +14,15 @@ function bodyFields(body, allowed) {
   if (!body || typeof body !== "object" || Array.isArray(body)) invalid("请求内容须为 JSON 对象");
   if (Object.keys(body).some(key => !allowed.includes(key))) invalid("请求包含不支持的字段");
 }
+function memorialDraft(body, number) {
+  bodyFields(body, ["version", "number", "name", "original", "nickname", "date", "inscription", "seal"]);
+  if (body.version !== 1 || body.number !== number) invalid("典藏原稿版本或尊序不一致");
+  for (const [key, max, required] of [["name",100,true],["original",6000,true],["nickname",12,false],["inscription",48,false]]) {
+    if (typeof body[key] !== "string" || (required && !body[key].trim()) || [...body[key]].length > max) invalid("典藏原稿文字无效或过长");
+  }
+  if (!["念", "藏", ""].includes(body.seal) || typeof body.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.date) || !Number.isFinite(Date.parse(body.date)) || new Date(body.date + "T12:00:00Z").toISOString().slice(0, 10) !== body.date) invalid("典藏原稿日期或印章无效");
+  return {version: 1, number, name: body.name, original: body.original, nickname: body.nickname, date: body.date, inscription: body.inscription, seal: body.seal};
+}
 function identity(headers, appId) {
   if (!headers["x-wx-source"]) throw new ApiError(401, "UNAUTHENTICATED", "请通过微信云托管调用");
   const reused = headers["x-wx-from-appid"] !== undefined || headers["x-wx-from-openid"] !== undefined;
@@ -53,4 +62,4 @@ function decodeCursor(value) {
     return {time: new Date(decoded.time), id: decoded.id};
   } catch {invalid("分页游标无效");}
 }
-module.exports = {ApiError, invalid, integer, bodyFields, identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor};
+module.exports = {ApiError, invalid, integer, bodyFields, memorialDraft, identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor};

@@ -12,7 +12,7 @@ Express + Sequelize + MySQL，提供用户资料、五百罗汉内容、收藏�
 
 本地 properties 使用 `key=value`，密码值保留等号后的全部字符。显式指定配置文件时仅使用文件配置，不受云端 MySQL 环境变量影响。私有 properties 文件已被 Git 忽略，文件权限建议为 `600`，不得放进文档或日志。默认监听端口为 80，须与云托管服务端口一致。
 
-启动时验证数据库连接并创建缺失的表，不修改已有表结构。业务表为 `t_luohan_user`、`t_luohan_favorite`、`t_luohan_encounter`、`t_luohan_content`、`t_luohan_image`，时间按 UTC 保存。模板计数器的首页、接口和表保留。启动时检查内容表完整性，缺少 500 尊内容或配套图片时启动失败，须先执行导入命令。
+启动时验证数据库连接并创建缺失的表，不修改已有表结构。业务表为 `t_luohan_user`、`t_luohan_favorite`、`t_luohan_encounter`、`t_luohan_content`、`t_luohan_image`、`t_luohan_memorial`，时间按 UTC 保存。模板计数器的首页、接口和表保留。启动时检查内容表完整性，缺少 500 尊内容或配套图片时启动失败，须先执行导入命令。
 
 Docker 构建使用锁定依赖，包含非敏感的云端配置文件；私有 properties 文件不会进入镜像。云托管从 master 构建时无需上传数据库配置文件，四个 MySQL 环境变量须在服务运行设置中提供。
 
@@ -102,6 +102,12 @@ const images = detail.images.map(image => {
 | `DELETE /api/me/favorites/:no` | `{ "version": 1 }` 等 | 取消收藏；保留删除标记用于同步 |
 
 每条状态包含 `number`、`saved`、`version`、`updatedAt`。客户端显示 `saved: true` 的条目，但同步时须保留 `saved: false` 的版本。重复写入同一状态不会递增版本；改变状态须使用最新版本，过期请求返回 409 和当前状态。客户端应刷新状态后由用户决定是否重新操作，避免旧设备覆盖新操作。
+
+### 典藏原稿
+
+`GET /api/me/memorials` 返回当前用户的 `items`；`PUT /api/me/memorials/:no` 接受 `{ "version": 0, "draft": { ... } }`。原稿包含格式版本 `version: 1`、尊序 `number`、名称 `name`、完整原文 `original`、昵称 `nickname`、日期 `date`（`YYYY-MM-DD`）、题字 `inscription` 和印章 `seal`（`念`、`藏` 或空字符串）。昵称最多 12 字，题字最多 48 字。
+
+每个用户、每尊罗汉保存一份原稿。首次写入使用同步版本 0，返回版本 1；修改须使用最新同步版本，相同原稿重试不递增版本。过期修改返回 409 `MEMORIAL_VERSION_CONFLICT` 及云端原稿，客户端保留本机内容并由用户选择覆盖或恢复。首次保存后的名称与原文快照不可修改，变更返回 409 `MEMORIAL_SNAPSHOT_CONFLICT`。原稿存于 `t_luohan_memorial`，与收藏状态分别管理，取消收藏不删除原稿。
 
 ### 数罗汉与随机相遇
 

@@ -1,6 +1,6 @@
 {
   "name": "wxcloudrun-express",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "归元数罗汉微信云托管后端",
   "main": "index.js",
   "scripts": {

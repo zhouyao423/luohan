@@ -32,7 +32,7 @@ test("HTTP 内容、身份边界、未知接口和无效 JSON", async () => {
     response = await fetch(`${base}/api/me/import`);assert.equal(response.status, 401);
     response = await fetch(`${base}/api/no-such-route`);assert.equal(response.status, 404);
     response = await fetch(`${base}/api/me/bootstrap`, {method: "POST", headers: {"content-type":"application/json"}, body:"{"});assert.equal(response.status, 400);
-    response = await fetch(`${base}/api/health`);assert.equal(response.status, 200);assert.equal((await response.json()).data.version, "1.1.0");
+    response = await fetch(`${base}/api/health`);assert.equal(response.status, 200);assert.equal((await response.json()).data.version, "1.2.0");
     unavailable = true;
     response = await fetch(`${base}/api/luohan/3`);data = await response.json();
     assert.equal(response.status, 500);assert.equal(data.code, "INTERNAL_ERROR");assert.equal(data.data, null);

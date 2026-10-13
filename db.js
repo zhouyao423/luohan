@@ -66,12 +66,20 @@ function createDatabase(config) {
     {unique: true, name: "udx_user_id_request_id", fields: ["user_id", "request_id"]},
     {name: "idx_user_id_created_at_id", fields: ["user_id", "created_at", "id"]},
   ]));
+  const Memorial = sequelize.define("LuohanMemorial", {
+    id: id(),
+    userId: {type: DataTypes.CHAR(32), allowNull: false, field: "user_id", comment: "业务用户标识"},
+    luohanNumber: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, field: "luohan_number", comment: "典藏原稿对应尊序，1–500"},
+    version: {type: DataTypes.INTEGER.UNSIGNED, allowNull: false, comment: "原稿同步版本，从 1 开始递增"},
+    draft: {type: DataTypes.JSON, allowNull: false, comment: "名称、原文快照、昵称、日期、题字和印章"},
+    ...timestamps(),
+  }, options("t_luohan_memorial", "归元数罗汉用户典藏原稿", [{unique: true, name: "udx_memorial_user_number", fields: ["user_id", "luohan_number"]}]));
   const Counter = sequelize.define("Counter", {count: {type: DataTypes.INTEGER, allowNull: false, defaultValue: 1}});
   async function init() {
     await sequelize.authenticate();
     // Only create missing tables; never alter an existing schema at startup.
-    for (const model of [Counter, User, Favorite, Encounter, Content, Image]) await model.sync();
+    for (const model of [Counter, User, Favorite, Encounter, Content, Image, Memorial]) await model.sync();
   }
-  return {sequelize, User, Favorite, Encounter, Counter, Content, Image, init, close: () => sequelize.close()};
+  return {sequelize, User, Favorite, Encounter, Counter, Content, Image, Memorial, init, close: () => sequelize.close()};
 }
 module.exports = {createDatabase};

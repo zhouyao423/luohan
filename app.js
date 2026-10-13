@@ -5,10 +5,10 @@ const cors = require("cors");
 const morgan = require("morgan");
 const {Op, Transaction} = require("sequelize");
 const {readCatalog, summary} = require("./catalog");
-const {ApiError, invalid, integer, bodyFields, identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("./domain");
+const {ApiError, invalid, integer, bodyFields, memorialDraft, identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("./domain");
 
 function createApp({database, appId, readContent = transaction => readCatalog(database, transaction), logging = true}) {
-  const {User, Favorite, Encounter, Counter, sequelize} = database;
+  const {User, Favorite, Encounter, Counter, Memorial, sequelize} = database;
   const app = express();
   app.disable("x-powered-by");
   app.use(express.urlencoded({extended: false, limit: "100kb"}));
@@ -22,6 +22,7 @@ function createApp({database, appId, readContent = transaction => readCatalog(da
   const ok = (res, data, status = 200) => res.status(status).json({code: 0, message: "ok", data});
   const profile = user => ({id: user.id, nickname: user.nickname, avatarFileId: user.avatarFileId, avatarUploadPrefix: `users/${user.id}/avatars/`, createdAt: user.createdAt, updatedAt: user.updatedAt});
   const favorite = row => ({number: row.luohanNumber, saved: row.saved, version: row.version, updatedAt: row.updatedAt});
+  const memorial = row => ({number: row.luohanNumber, version: row.version, draft: row.draft, updatedAt: row.updatedAt});
   const encounter = row => ({id: row.id, requestId: row.requestId, mode: row.mode, startNumber: row.startNumber, count: row.count, direction: row.direction, resultNumber: row.resultNumber, contentVersion: row.contentVersion, snapshot: row.snapshot, createdAt: row.createdAt});
   function authenticate(req, res, next) {
     try {req.wxIdentity = identity(req.headers, appId);next();} catch (error) {next(error);}
@@ -100,6 +101,26 @@ function createApp({database, appId, readContent = transaction => readCatalog(da
   }
   app.put("/api/me/favorites/:no", run((req, res) => changeFavorite(req, res, true)));
   app.delete("/api/me/favorites/:no", run((req, res) => changeFavorite(req, res, false)));
+  app.get("/api/me/memorials", run(async (req, res) => {
+    const rows = await Memorial.findAll({where: {userId: req.user.id}, order: [["luohanNumber", "ASC"]]});
+    ok(res, {items: rows.map(memorial)});
+  }));
+  app.put("/api/me/memorials/:no", run(async (req, res) => {
+    const number = numberParam(req.params.no);
+    bodyFields(req.body, ["version", "draft"]);
+    const expected = integer(req.body.version, 0, 4294967294, "典藏版本");
+    const draft = memorialDraft(req.body.draft, number);
+    const row = await sequelize.transaction(async transaction => {
+      await User.findByPk(req.user.id, {transaction, lock: transaction.LOCK.UPDATE});
+      const existing = await Memorial.findOne({where: {userId: req.user.id, luohanNumber: number}, transaction});
+      if (existing && Object.keys(draft).every(key => draft[key] === existing.draft[key])) return existing;
+      if (expected !== (existing ? existing.version : 0)) throw new ApiError(409, "MEMORIAL_VERSION_CONFLICT", "典藏已在其他设备更新，本机原稿仍可保留", existing ? memorial(existing) : {number, version: 0, draft: null});
+      if (existing && (draft.name !== existing.draft.name || draft.original !== existing.draft.original)) throw new ApiError(409, "MEMORIAL_SNAPSHOT_CONFLICT", "原文快照与云端不同，本机原稿已保留", memorial(existing));
+      if (existing) return existing.update({draft, version: existing.version + 1}, {transaction});
+      return Memorial.create({userId: req.user.id, luohanNumber: number, version: 1, draft}, {transaction});
+    });
+    ok(res, memorial(row));
+  }));
   app.post("/api/me/encounters", run(async (req, res) => {
     const input = encounterInput(req.body);
     const hash = requestHash(input);

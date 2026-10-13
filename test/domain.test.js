@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const {identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("../domain");
+const {identity, memorialDraft, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("../domain");
 const {loadCatalog} = require("../catalog");
 
 test("微信身份来自当前小程序或完整的资源复用请求头", () => {
@@ -24,6 +24,11 @@ test("随机拒绝采样消除取模偏差", () => {
   const values = [0xffffffff, 499];
   assert.equal(randomNumber(() => {const buffer = Buffer.alloc(4);buffer.writeUInt32BE(values.shift());return buffer;}), 500);
   assert.equal(values.length, 0);
+});
+test("典藏原稿校验尊序、真实日期、快照和 Unicode 长度", () => {
+  const draft = {version: 1, number: 130, name: "宝幢尊者", original: "人生苦短休叹息，自立自强当努力。", nickname: "静读🌿", date: "2028-02-29", inscription: "每一步，都有新的可能。", seal: "藏"};
+  assert.deepEqual(memorialDraft(draft, 130), draft);
+  for (const change of [{version: 2}, {number: 3}, {name: " "}, {original: "字".repeat(6001)}, {nickname: "🌿".repeat(13)}, {inscription: "字".repeat(49)}, {date: "2026-02-29"}, {date: "2028-04-31"}, {seal: "运"}, {userId: "someone"}]) assert.throws(() => memorialDraft({...draft, ...change}, 130), error => error.status === 400);
 });
 test("幂等参数签名和分页游标保留完整语义", () => {
   const input = encounterInput({requestId: "test-request", mode: "count", startNumber: 130, count: 30, direction: 1});
