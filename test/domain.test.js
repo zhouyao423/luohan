@@ -1,5 +1,8 @@
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const {identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("../domain");
 const {loadCatalog} = require("../catalog");
 
@@ -36,4 +39,33 @@ test("500 尊各有一份文字，来源可查，响应没有前端核对分类"
   assert.equal(new Set(catalog.entries.map(entry => entry.number)).size, 500);
   assert.ok(catalog.entries[2].original);assert.match(catalog.entries[2].source.url, /^https:\/\//);
   assert.equal(catalog.entries.some(entry => Object.hasOwn(entry, "verified")), false);
+});
+
+test("500 尊各有雕塑、金卡和经典卡，拒绝错号、外层目录和失效图片元数据", () => {
+  const catalog = loadCatalog();
+  const files = catalog.entries.flatMap(entry => entry.images.map(image => image.fileId));
+  assert.equal(files.length, 1500);assert.equal(new Set(files).size, 1500);
+  const card = catalog.entries[2].images.find(image => image.type === "gold-card");
+  assert.equal(card.fileId, "cloud://prod-d3g2q7qh039bf1ea2.7072-prod-d3g2q7qh039bf1ea2-1505362636/luohan/gold-cards/003-3c70f437499c.jpg");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "luohan-images-"));
+  const filename = path.join(directory, "catalog.json");
+  const original = JSON.stringify({entries: catalog.entries});
+  const invalidImages = [
+    entry => entry.images.pop(),
+    entry => {entry.images[1] = {...entry.images[0]};},
+    entry => {entry.images[0] = null;},
+    entry => {entry.images[0].sha256 = "invalid";},
+    entry => {entry.images[0].width = 0;},
+    entry => {entry.images[2].cloudPath = entry.images[2].cloudPath.replace("classic-cards", "gold-cards");},
+    entry => {entry.images[0].cloudPath = entry.images[0].cloudPath.replace("001-", "002-");},
+    entry => {entry.images[0].fileId = entry.images[0].fileId.replace("/luohan/", "/对象存储上传包/luohan/");},
+    entry => {entry.images[0].fileId = "https://example.com/temporary.jpg?expires=1";},
+  ];
+  try {
+    for (const change of invalidImages) {
+      const data = JSON.parse(original);change(data.entries[0]);
+      fs.writeFileSync(filename, JSON.stringify(data));
+      assert.throws(() => loadCatalog(filename), /图片|雕塑|金卡/);
+    }
+  } finally {fs.rmSync(directory, {recursive: true, force: true});}
 });

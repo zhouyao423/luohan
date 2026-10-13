@@ -1,6 +1,6 @@
 const {loadConfig} = require("./config");
 const {createDatabase} = require("./db");
-const {loadCatalog} = require("./catalog");
+const {readCatalog} = require("./catalog");
 const {createApp} = require("./app");
 
 async function bootstrap() {
@@ -9,7 +9,8 @@ async function bootstrap() {
     const config = loadConfig(process.argv[2]);
     database = createDatabase(config.database);
     await database.init();
-    const app = createApp({database, catalog: loadCatalog(), appId: config.appId});
+    await readCatalog(database);
+    const app = createApp({database, appId: config.appId});
     const server = app.listen(config.port, () => console.log("服务已启动", config.port));
     server.on("error", async error => {
       console.error("监听失败", error.code || error.name);

@@ -7,11 +7,12 @@ Express + Sequelize + MySQL，提供用户资料、五百罗汉内容、收藏�
 1. 运行 `npm ci` 安装锁定的依赖。
 2. 云托管提供 `MYSQL_ADDRESS`（内网 host:port）、`MYSQL_USERNAME`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` 四个环境变量，数据库须事先创建。小程序 AppID 和监听端口维护在 `config/application.cloud.properties`。
 3. 本地调试将 `config/application.example.properties` 复制为 `config/application.local.properties`，填写数据库外网地址、账号、密码、库名、小程序 AppID 和本地监听端口。
-4. 云托管运行 `npm start`；本地运行 `npm run start:local`。
+4. 首次部署先运行 `npm run import:catalog` 创建并填充内容和图片表；本地连接数据库时使用 `npm run import:catalog -- config/application.local.properties`。
+5. 云托管运行 `npm start`；本地运行 `npm run start:local`。
 
 本地 properties 使用 `key=value`，密码值保留等号后的全部字符。显式指定配置文件时仅使用文件配置，不受云端 MySQL 环境变量影响。私有 properties 文件已被 Git 忽略，文件权限建议为 `600`，不得放进文档或日志。默认监听端口为 80，须与云托管服务端口一致。
 
-启动时验证数据库连接并创建缺失的表，不修改已有表结构。业务表为 `t_luohan_user`、`t_luohan_favorite`、`t_luohan_encounter`，时间按 UTC 保存。模板计数器的首页、接口和表保留。
+启动时验证数据库连接并创建缺失的表，不修改已有表结构。业务表为 `t_luohan_user`、`t_luohan_favorite`、`t_luohan_encounter`、`t_luohan_content`、`t_luohan_image`，时间按 UTC 保存。模板计数器的首页、接口和表保留。启动时检查内容表完整性，缺少 500 尊内容或配套图片时启动失败，须先执行导入命令。
 
 Docker 构建使用锁定依赖，包含非敏感的云端配置文件；私有 properties 文件不会进入镜像。云托管从 master 构建时无需上传数据库配置文件，四个 MySQL 环境变量须在服务运行设置中提供。
 
@@ -63,7 +64,34 @@ const user = result.data.data;
 | `GET /api/luohan` | 可选 `q`，最多 100 字符 | `contentVersion`、`total`、`items`；数字按尊序查找，其他文字搜索名称或原文 |
 | `GET /api/luohan/:no` | 尊序 1–500 | 名称、原文、赏读、来源、图片元数据和内容版本 |
 
-目录位于 `data/luohan.json`，每尊只保留一份文字，共 500 尊；34 尊包含赏读，其余 `reading` 为空字符串。客户端须按内容是否存在展示赏读入口。图片元数据当前为空数组，接入对象存储图片后可补充。内容版本为目录文件的 SHA256。
+线上内容从 MySQL 读取，`data/luohan.json` 仅作为首次导入的数据文件，不参与接口读取。`t_luohan_content` 保存尊序、名称、原文、赏读和来源，尊序由唯一索引约束；`t_luohan_image` 保存图片元数据，每个尊序与图片类型的组合唯一。导入数据共 500 尊，34 尊包含赏读，其余 `reading` 为空字符串。客户端须按内容是否存在展示赏读入口。
+
+导入命令在同一事务内补充缺失内容和图片，不覆盖数据库已有记录，任何插入或完整性校验失败都会回滚该次数据写入。重复执行不会增加重复记录，也不会用 JSON 覆盖已编辑的内容。建表 DDL 不随数据事务回滚。修改线上内容应更新数据库，不通过改 JSON 自动同步。
+
+每次内容读取在同一事务内查询内容和图片，确保两表来自一致的数据快照。数据库更新后，后续请求直接读取新内容，无需重启服务。`contentVersion` 为返回完整目录内容及图片映射的 SHA256，不包含数据库记录 ID 和时间字段；新建相遇记录保存当时版本和原文快照，历史记录不会随目录修改。
+
+每尊的 `images` 包含三项：`type: "statue"` 为透明背景 WebP 雕塑，`type: "gold-card"` 为 JPG 金卡，`type: "classic-card"` 为 JPG 经典白描画像。每项提供 `fileId`、`cloudPath`、`width`、`height` 和 `sha256`，尺寸均为 512 × 768。列表、详情和收藏条目使用相同的图片元数据。
+
+图片位于云环境 `prod-d3g2q7qh039bf1ea2`，对象路径分别为 `luohan/statues/三位尊序-哈希前12位.webp` 、`luohan/gold-cards/三位尊序-哈希前12位.jpg` 和 `luohan/classic-cards/三位尊序-哈希前12位.jpg`。云端路径没有额外的上传包目录。服务启动及读取时校验每尊三种图片、尊序、路径、哈希和尺寸；图片文件存放在对象存储中，MySQL 只保存索引和元数据。
+
+小程序获取详情后，使用 `wx.cloud.getTempFileURL` 解析图片 File ID，再将 `tempFileURL` 设置为 `<image>` 的 `src`。临时链接不得作为长期内容保存，过期后应重新获取；解析失败时展示占位图并提供重试。须使用上述图片资源环境，避免解析到其他环境：
+
+```js
+const imageCloud = new wx.cloud.Cloud({
+  resourceAppid: 'wxf435cf99f43499ee',
+  resourceEnv: 'prod-d3g2q7qh039bf1ea2'
+});
+await imageCloud.init();
+const result = await imageCloud.getTempFileURL({
+  fileList: detail.images.map(image => image.fileId)
+});
+const images = detail.images.map(image => {
+  const file = result.fileList.find(item => item.fileID === image.fileId);
+  return { ...image, src: file && file.status === 0 ? file.tempFileURL : null };
+});
+```
+
+读取这些已上传图片不需要后端申请 COS 写入密钥。云托管服务端后续操作对象存储时使用控制台提供的 `COS_BUCKET`、`COS_REGION`；它们不是访问 URL，也不替代小程序端的存储权限。图片需在对象存储权限中允许小程序读者读取。
 
 ### 收藏
 
@@ -110,13 +138,14 @@ npm test
 npm run test:db
 ```
 
-第一条验证配置解析、身份、计数、随机取样、目录和 HTTP 参数边界。第二条读取本地 properties，连接真实 MySQL，验证用户隔离、收藏并发与版本、相遇幂等、历史快照、分页和查询索引；创建独立测试用户，并在结束时删除这些测试用户和关联数据。
+第一条验证配置解析、身份、计数、随机取样、目录和 HTTP 参数边界。第二条读取本地 properties，连接已导入初始目录的 MySQL，验证数据回读、重复导入、唯一索引、内容更新、用户隔离、收藏并发与版本、相遇幂等、历史快照、分页和查询索引；临时内容修改在事务内回滚，独立测试用户和关联记录在结束时清理。若数据库内容已编辑，不应在该环境运行要求与初始 JSON 完全一致的集成测试。
 
-健康检查为 `GET /api/health`，表示进程可响应，不代表实时数据库检查。云托管权限、对象存储权限、小程序真机调用和容器构建须在对应环境中另行验证。
+健康检查为 `GET /api/health`，返回运行版本 `version`，表示进程可响应，不代表实时数据库检查。云托管权限、对象存储权限、小程序真机调用和容器构建须在对应环境中另行验证。
 
 ## 参考
 
 - [微信云托管开发指南](https://developers.weixin.qq.com/miniprogram/dev/wxcloudservice/wxcloudrun/src/development/)
 - [小程序调用容器](https://developers.weixin.qq.com/miniprogram/dev/wxcloudservice/wxcloudrun/src/development/call/mini.html)
 - [小程序上传云存储文件](https://developers.weixin.qq.com/miniprogram/dev/wxcloudservice/wxcloudrun/src/development/storage/miniapp/upload.html)
+- [小程序获取云存储临时访问链接](https://developers.weixin.qq.com/miniprogram/dev/wxcloudservice/wxcloudrun/src/development/storage/miniapp/gettempurl.html)
 - [MIT License](./LICENSE)

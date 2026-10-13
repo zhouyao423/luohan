@@ -1,12 +1,13 @@
 const path = require("path");
+const {version} = require("./package.json");
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
-const {Op} = require("sequelize");
-const {summary} = require("./catalog");
+const {Op, Transaction} = require("sequelize");
+const {readCatalog, summary} = require("./catalog");
 const {ApiError, invalid, integer, bodyFields, identity, encounterInput, destination, randomNumber, requestHash, encodeCursor, decodeCursor} = require("./domain");
 
-function createApp({database, catalog, appId, logging = true}) {
+function createApp({database, appId, readContent = transaction => readCatalog(database, transaction), logging = true}) {
   const {User, Favorite, Encounter, Counter, sequelize} = database;
   const app = express();
   app.disable("x-powered-by");
@@ -19,7 +20,6 @@ function createApp({database, catalog, appId, logging = true}) {
   }
   const run = handler => (req, res, next) => Promise.resolve().then(() => handler(req, res, next)).catch(next);
   const ok = (res, data, status = 200) => res.status(status).json({code: 0, message: "ok", data});
-  const entryByNumber = new Map(catalog.entries.map(entry => [entry.number, entry]));
   const profile = user => ({id: user.id, nickname: user.nickname, avatarFileId: user.avatarFileId, avatarUploadPrefix: `users/${user.id}/avatars/`, createdAt: user.createdAt, updatedAt: user.updatedAt});
   const favorite = row => ({number: row.luohanNumber, saved: row.saved, version: row.version, updatedAt: row.updatedAt});
   const encounter = row => ({id: row.id, requestId: row.requestId, mode: row.mode, startNumber: row.startNumber, count: row.count, direction: row.direction, resultNumber: row.resultNumber, contentVersion: row.contentVersion, snapshot: row.snapshot, createdAt: row.createdAt});
@@ -31,18 +31,19 @@ function createApp({database, catalog, appId, logging = true}) {
     return integer(Number(value), 1, 500, "尊序");
   }
   app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-  app.get("/api/health", (req, res) => ok(res, {status: "ok"}));
-  app.get("/api/luohan", (req, res, next) => {
-    try {
-      if (req.query.q !== undefined && (typeof req.query.q !== "string" || req.query.q.length > 100)) invalid("搜索词最多 100 字符");
-      const query = (req.query.q || "").trim();
-      const matches = !query ? catalog.entries : catalog.entries.filter(entry => /^\d+$/.test(query) ? entry.number === Number(query) : entry.name.includes(query) || entry.original.includes(query));
-      ok(res, {contentVersion: catalog.version, total: matches.length, items: matches.map(summary)});
-    } catch (error) {next(error);}
-  });
-  app.get("/api/luohan/:no", (req, res, next) => {
-    try {ok(res, {...entryByNumber.get(numberParam(req.params.no)), contentVersion: catalog.version});} catch (error) {next(error);}
-  });
+  app.get("/api/health", (req, res) => ok(res, {status: "ok", version}));
+  app.get("/api/luohan", run(async (req, res) => {
+    if (req.query.q !== undefined && (typeof req.query.q !== "string" || req.query.q.length > 100)) invalid("搜索词最多 100 字符");
+    const catalog = await readContent();
+    const query = (req.query.q || "").trim();
+    const matches = !query ? catalog.entries : catalog.entries.filter(entry => /^\d+$/.test(query) ? entry.number === Number(query) : entry.name.includes(query) || entry.original.includes(query));
+    ok(res, {contentVersion: catalog.version, total: matches.length, items: matches.map(summary)});
+  }));
+  app.get("/api/luohan/:no", run(async (req, res) => {
+    const number = numberParam(req.params.no);
+    const catalog = await readContent();
+    ok(res, {...catalog.entries.find(entry => entry.number === number), contentVersion: catalog.version});
+  }));
 
   app.use("/api/me", authenticate, run(async (req, res, next) => {
     if (req.method === "POST" && req.path === "/bootstrap") return next();
@@ -78,6 +79,8 @@ function createApp({database, catalog, appId, logging = true}) {
   }));
   app.get("/api/me/favorites", run(async (req, res) => {
     const rows = await Favorite.findAll({where: {userId: req.user.id}, order: [["luohanNumber", "ASC"]]});
+    const catalog = await readContent();
+    const entryByNumber = new Map(catalog.entries.map(entry => [entry.number, entry]));
     ok(res, {items: rows.map(row => ({...favorite(row), entry: summary(entryByNumber.get(row.luohanNumber))}))});
   }));
   async function changeFavorite(req, res, saved) {
@@ -100,7 +103,7 @@ function createApp({database, catalog, appId, logging = true}) {
   app.post("/api/me/encounters", run(async (req, res) => {
     const input = encounterInput(req.body);
     const hash = requestHash(input);
-    const result = await sequelize.transaction(async transaction => {
+    const result = await sequelize.transaction({isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ}, async transaction => {
       await User.findByPk(req.user.id, {transaction, lock: transaction.LOCK.UPDATE});
       const existing = await Encounter.findOne({where: {userId: req.user.id, requestId: input.requestId}, transaction});
       if (existing) {
@@ -108,7 +111,8 @@ function createApp({database, catalog, appId, logging = true}) {
         return {row: existing, created: false};
       }
       const resultNumber = input.mode === "random" ? randomNumber() : destination(input.startNumber, input.count, input.direction);
-      const entry = entryByNumber.get(resultNumber);
+      const catalog = await readContent(transaction);
+      const entry = catalog.entries.find(entry => entry.number === resultNumber);
       const row = await Encounter.create({...input, userId: req.user.id, requestHash: hash, resultNumber, contentVersion: catalog.version, snapshot: {number: entry.number, name: entry.name, original: entry.original, source: entry.source}}, {transaction});
       return {row, created: true};
     });

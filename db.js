@@ -13,6 +13,26 @@ function createDatabase(config) {
     updatedAt: {type: DataTypes.DATE(3), allowNull: false, field: "updated_at", comment: "更新时间，UTC，毫秒精度"},
   });
   const options = (tableName, comment, indexes) => ({tableName, comment, timestamps: true, underscored: true, engine: "InnoDB", charset: "utf8mb4", collate: "utf8mb4_bin", indexes});
+  const Content = sequelize.define("LuohanContent", {
+    id: id(),
+    number: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, comment: "罗汉尊序，1–500"},
+    name: {type: DataTypes.STRING(100), allowNull: false, comment: "罗汉名称"},
+    original: {type: DataTypes.TEXT, allowNull: false, comment: "偈语原文"},
+    reading: {type: DataTypes.TEXT, allowNull: false, comment: "赏读正文，空字符串表示尚无赏读"},
+    source: {type: DataTypes.JSON, allowNull: false, comment: "原文来源标题和链接"},
+    ...timestamps(),
+  }, options("t_luohan_content", "归元数罗汉内容", [{unique: true, name: "udx_number", fields: ["number"]}]));
+  const Image = sequelize.define("LuohanImage", {
+    id: id(),
+    luohanNumber: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, field: "luohan_number", comment: "所属罗汉尊序，1–500"},
+    type: {type: DataTypes.STRING(16), allowNull: false, comment: "图片类型，statue 为雕塑，gold-card 为金卡，classic-card 为经典卡"},
+    fileId: {type: DataTypes.STRING(512), allowNull: false, field: "file_id", comment: "云存储稳定文件标识，不保存临时链接"},
+    cloudPath: {type: DataTypes.STRING(512), allowNull: false, field: "cloud_path", comment: "对象存储文件路径"},
+    width: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, comment: "图片宽度，像素"},
+    height: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, comment: "图片高度，像素"},
+    sha256: {type: DataTypes.CHAR(64), allowNull: false, comment: "图片文件 SHA256 哈希，十六进制"},
+    ...timestamps(),
+  }, options("t_luohan_image", "归元数罗汉图片索引", [{unique: true, name: "udx_luohan_number_type", fields: ["luohan_number", "type"]}]));
   const User = sequelize.define("LuohanUser", {
     id: id(),
     appId: {type: DataTypes.STRING(32), allowNull: false, field: "app_id", comment: "调用方小程序 AppID"},
@@ -50,8 +70,8 @@ function createDatabase(config) {
   async function init() {
     await sequelize.authenticate();
     // Only create missing tables; never alter an existing schema at startup.
-    for (const model of [Counter, User, Favorite, Encounter]) await model.sync();
+    for (const model of [Counter, User, Favorite, Encounter, Content, Image]) await model.sync();
   }
-  return {sequelize, User, Favorite, Encounter, Counter, init, close: () => sequelize.close()};
+  return {sequelize, User, Favorite, Encounter, Counter, Content, Image, init, close: () => sequelize.close()};
 }
 module.exports = {createDatabase};
