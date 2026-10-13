@@ -1,0 +1,6 @@
+node_modules/
+config/application*.properties
+!config/application.example.properties
+*.log
+coverage/
+.DS_Store

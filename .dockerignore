@@ -1,0 +1,9 @@
+.git
+node_modules
+test
+coverage
+*.log
+config/application*.properties
+!config/application.properties
+!config/application.example.properties
+.DS_Store

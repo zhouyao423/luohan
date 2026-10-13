@@ -1,10 +1,13 @@
 {
   "name": "wxcloudrun-express",
   "version": "1.0.0",
-  "description": "微信云托管 express 框架模版",
+  "description": "归元数罗汉微信云托管后端",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "start:local": "node index.js config/application.local.properties",
+    "test": "node --test test/domain.test.js test/api.test.js test/config.test.js",
+    "test:db": "node --test test/database.test.js"
   },
   "author": "",
   "license": "Apache-2.0",

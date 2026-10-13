@@ -1,32 +1,57 @@
-const { Sequelize, DataTypes } = require("sequelize");
+const {Sequelize, DataTypes} = require("sequelize");
+const crypto = require("crypto");
 
-// 从环境变量中读取数据库配置
-const { MYSQL_USERNAME, MYSQL_PASSWORD, MYSQL_ADDRESS = "" } = process.env;
-
-const [host, port] = MYSQL_ADDRESS.split(":");
-
-const sequelize = new Sequelize("nodejs_demo", MYSQL_USERNAME, MYSQL_PASSWORD, {
-  host,
-  port,
-  dialect: "mysql" /* one of 'mysql' | 'mariadb' | 'postgres' | 'mssql' */,
-});
-
-// 定义数据模型
-const Counter = sequelize.define("Counter", {
-  count: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 1,
-  },
-});
-
-// 数据库初始化方法
-async function init() {
-  await Counter.sync({ alter: true });
+function createDatabase(config) {
+  const sequelize = new Sequelize(config.name, config.username, config.password, {
+    host: config.host, port: config.port, dialect: "mysql", logging: false,
+    timezone: "+00:00", dialectOptions: {charset: "utf8mb4", connectTimeout: 10000},
+    pool: {max: 5, min: 0, acquire: 15000, idle: 10000},
+  });
+  const id = () => ({type: DataTypes.CHAR(32), primaryKey: true, allowNull: false, defaultValue: () => crypto.randomBytes(16).toString("hex"), comment: "业务记录标识"});
+  const timestamps = () => ({
+    createdAt: {type: DataTypes.DATE(3), allowNull: false, field: "created_at", comment: "创建时间，UTC，毫秒精度"},
+    updatedAt: {type: DataTypes.DATE(3), allowNull: false, field: "updated_at", comment: "更新时间，UTC，毫秒精度"},
+  });
+  const options = (tableName, comment, indexes) => ({tableName, comment, timestamps: true, underscored: true, engine: "InnoDB", charset: "utf8mb4", collate: "utf8mb4_bin", indexes});
+  const User = sequelize.define("LuohanUser", {
+    id: id(),
+    appId: {type: DataTypes.STRING(32), allowNull: false, field: "app_id", comment: "调用方小程序 AppID"},
+    openId: {type: DataTypes.STRING(128), allowNull: false, field: "open_id", comment: "微信用户标识，仅在对应 AppID 下唯一"},
+    nickname: {type: DataTypes.STRING(40), allowNull: false, defaultValue: "读者", comment: "用户设置的昵称，初始为读者"},
+    avatarFileId: {type: DataTypes.STRING(512), allowNull: true, field: "avatar_file_id", comment: "头像对象存储文件标识，NULL 表示未设置"},
+    ...timestamps(),
+  }, options("t_luohan_user", "归元数罗汉用户", [{unique: true, name: "udx_app_id_open_id", fields: ["app_id", "open_id"]}]));
+  const Favorite = sequelize.define("LuohanFavorite", {
+    id: id(),
+    userId: {type: DataTypes.CHAR(32), allowNull: false, field: "user_id", comment: "业务用户标识"},
+    luohanNumber: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, field: "luohan_number", comment: "罗汉尊序，1–500"},
+    saved: {type: DataTypes.BOOLEAN, allowNull: false, comment: "收藏状态，1 为收藏，0 为删除同步标记"},
+    version: {type: DataTypes.INTEGER.UNSIGNED, allowNull: false, comment: "收藏状态版本，从 1 开始递增"},
+    ...timestamps(),
+  }, options("t_luohan_favorite", "归元数罗汉收藏及删除同步标记", [{unique: true, name: "udx_user_id_luohan_number", fields: ["user_id", "luohan_number"]}]));
+  const Encounter = sequelize.define("LuohanEncounter", {
+    id: id(),
+    userId: {type: DataTypes.CHAR(32), allowNull: false, field: "user_id", comment: "业务用户标识"},
+    requestId: {type: DataTypes.STRING(64), allowNull: false, field: "request_id", comment: "客户端生成的相遇请求标识，用于幂等重试"},
+    requestHash: {type: DataTypes.CHAR(64), allowNull: false, field: "request_hash", comment: "计数参数 SHA256，用于识别请求标识误用"},
+    mode: {type: DataTypes.STRING(8), allowNull: false, comment: "玩法，count 为计数，random 为随机"},
+    startNumber: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: true, field: "start_number", comment: "起点尊序，1–500；随机模式为 NULL"},
+    count: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: true, comment: "计数，1–500，起点算第一尊；随机模式为 NULL"},
+    direction: {type: DataTypes.TINYINT, allowNull: true, comment: "计数方向，1 向右，-1 向左；随机模式为 NULL"},
+    resultNumber: {type: DataTypes.SMALLINT.UNSIGNED, allowNull: false, field: "result_number", comment: "最终尊序，1–500"},
+    contentVersion: {type: DataTypes.CHAR(64), allowNull: false, field: "content_version", comment: "相遇时目录内容的 SHA256 版本"},
+    snapshot: {type: DataTypes.JSON, allowNull: false, comment: "相遇时的编号、名称、原文和来源快照，后续目录更新不修改"},
+    ...timestamps(),
+  }, options("t_luohan_encounter", "归元数罗汉相遇历史", [
+    {unique: true, name: "udx_user_id_request_id", fields: ["user_id", "request_id"]},
+    {name: "idx_user_id_created_at_id", fields: ["user_id", "created_at", "id"]},
+  ]));
+  const Counter = sequelize.define("Counter", {count: {type: DataTypes.INTEGER, allowNull: false, defaultValue: 1}});
+  async function init() {
+    await sequelize.authenticate();
+    // Only create missing tables; never alter an existing schema at startup.
+    for (const model of [Counter, User, Favorite, Encounter]) await model.sync();
+  }
+  return {sequelize, User, Favorite, Encounter, Counter, init, close: () => sequelize.close()};
 }
-
-// 导出初始化方法和模型
-module.exports = {
-  init,
-  Counter,
-};
+module.exports = {createDatabase};
