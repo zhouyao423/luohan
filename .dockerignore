@@ -2,6 +2,7 @@
 node_modules
 test
 coverage
+artifacts
 *.log
 config/application*.properties
 !config/application.example.properties

@@ -7,7 +7,8 @@
     "start": "node index.js",
     "start:local": "node index.js config/application.local.properties",
     "import:catalog": "node scripts/import-catalog.js",
-    "test": "node --test test/domain.test.js test/api.test.js test/config.test.js",
+    "import:line-readings": "node scripts/import-line-readings.js",
+    "test": "node --test test/domain.test.js test/api.test.js test/config.test.js test/line-readings.test.js",
     "test:db": "node --test test/database.test.js"
   },
   "author": "",

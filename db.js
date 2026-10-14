@@ -19,6 +19,7 @@ function createDatabase(config) {
     name: {type: DataTypes.STRING(100), allowNull: false, comment: "罗汉名称"},
     original: {type: DataTypes.TEXT, allowNull: false, comment: "偈语原文"},
     reading: {type: DataTypes.TEXT, allowNull: false, comment: "赏读正文，空字符串表示尚无赏读"},
+    lineReadings: {type: DataTypes.JSON, allowNull: true, field: "line_readings", comment: "按原句顺序保存白话释义，元素含 original 和 explanation；NULL 表示尚未编写"},
     source: {type: DataTypes.JSON, allowNull: false, comment: "原文来源标题和链接"},
     ...timestamps(),
   }, options("t_luohan_content", "归元数罗汉内容", [{unique: true, name: "udx_number", fields: ["number"]}]));

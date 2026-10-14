@@ -2,9 +2,22 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const {Transaction} = require("sequelize");
+const {validateLineReadings, validateBatch} = require("./line-readings");
 
 function loadCatalog(filename = path.join(__dirname, "data/luohan.json")) {
-  return catalogFromEntries(JSON.parse(fs.readFileSync(filename, "utf8")).entries);
+  const entries = JSON.parse(fs.readFileSync(filename, "utf8")).entries;
+  const readingsFile = path.join(__dirname, "data/line-readings.json");
+  if (filename === path.join(__dirname, "data/luohan.json") && fs.existsSync(readingsFile)) {
+    const rows = JSON.parse(fs.readFileSync(readingsFile, "utf8")).entries;
+    validateBatch(rows);
+    const readings = new Map(rows.map(entry => [entry.number, entry]));
+    for (const entry of entries) {
+      const reading = readings.get(entry.number);
+      if (!reading || reading.original !== entry.original || reading.name !== entry.name) throw new Error("逐句解释与种子原文不一致");
+      entry.lineReadings = reading.lineReadings;
+    }
+  }
+  return catalogFromEntries(entries);
 }
 
 function catalogFromEntries(entries) {
@@ -12,6 +25,9 @@ function catalogFromEntries(entries) {
   if (!Array.isArray(entries) || entries.length !== 500) throw new Error("罗汉目录须包含 500 尊");
   for (const entry of entries) {
     if (!Number.isInteger(entry.number) || entry.number < 1 || entry.number > 500 || ids.has(entry.number) || !entry.name || !entry.original) throw new Error("罗汉目录编号或文字无效");
+    entry.lineReadings = entry.lineReadings == null ? [] : entry.lineReadings;
+    if (!Array.isArray(entry.lineReadings)) throw new Error("逐句解释格式无效");
+    if (entry.lineReadings.length) validateLineReadings(entry.original, entry.lineReadings);
     if (!entry.source || !/^https?:\/\//.test(entry.source.url) || !Array.isArray(entry.images)) throw new Error("罗汉目录来源或图片元数据无效");
     if (entry.images.length !== 3) throw new Error("每尊须包含雕塑、金卡和经典卡");
     const imageTypes = new Set();
@@ -33,7 +49,7 @@ function catalogFromEntries(entries) {
 async function readCatalog(database, transaction) {
   if (!transaction) return database.sequelize.transaction({isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ}, transaction => readCatalog(database, transaction));
   // shortcut: reads all 500 entries to hash the catalogue; add cache invalidation if traffic grows.
-  const entries = await database.Content.findAll({attributes: ["number", "name", "original", "reading", "source"], order: [["number", "ASC"]], raw: true, transaction});
+  const entries = await database.Content.findAll({attributes: ["number", "name", "original", "reading", "lineReadings", "source"], order: [["number", "ASC"]], raw: true, transaction});
   const images = await database.Image.findAll({attributes: ["luohanNumber", "type", "fileId", "cloudPath", "width", "height", "sha256"], order: [["luohanNumber", "ASC"], ["type", "DESC"]], raw: true, transaction});
   const byNumber = new Map(entries.map(entry => {entry.images = [];return [entry.number, entry];}));
   for (const {luohanNumber, ...image} of images) {

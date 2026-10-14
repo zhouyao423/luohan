@@ -17,6 +17,8 @@ test("HTTP 内容、身份边界、未知接口和无效 JSON", async () => {
     assert.equal(data.data.items.reduce((count, item) => count + item.images.length, 0), 1500);
     response = await fetch(`${base}/api/luohan?q=130`);data = await response.json();assert.equal(data.data.items[0].number, 130);assert.equal(data.data.total, 1);
     response = await fetch(`${base}/api/luohan/3`);data = await response.json();assert.ok(data.data.original);assert.ok(data.data.source.url);
+    assert.deepEqual(data.data.lineReadings, catalog.entries[2].lineReadings);
+    assert.equal("lineReadings" in (await (await fetch(`${base}/api/luohan?q=3`)).json()).data.items[0], false);
     const images = data.data.images;
     assert.deepEqual(images.map(image => image.type), ["statue", "gold-card", "classic-card"]);
     assert.match(images[2].fileId, /\/luohan\/classic-cards\/003-7f6d952c8c8f\.jpg$/);

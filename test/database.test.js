@@ -74,7 +74,7 @@ test("真实 MySQL：用户隔离、收藏版本、随机幂等、历史快照�
     result = await call("A", "POST", "/api/me/encounters", {...counting, direction: -1});assert.equal(result.status, 409);
     contentTransaction = await db.sequelize.transaction({isolationLevel: "REPEATABLE READ"});
     try {
-      await db.Content.update({original: "新目录文字"}, {where: {number: 159}, transaction: contentTransaction});
+      await db.Content.update({original: "新目录文字", lineReadings: null}, {where: {number: 159}, transaction: contentTransaction});
       result = await call("A", "GET", "/api/luohan/159");assert.equal(result.data.original, "新目录文字");assert.notEqual(result.data.contentVersion, catalog.version);
       result = await call("A", "POST", "/api/me/encounters", counting);assert.equal(result.status, 200);assert.equal(result.data.snapshot.original, historical.snapshot.original);assert.equal(result.data.contentVersion, historical.contentVersion);
     } finally {await contentTransaction.rollback();contentTransaction = null;}
